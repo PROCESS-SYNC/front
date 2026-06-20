@@ -1,5 +1,5 @@
 import type { RouteConfig } from "@/common/router/types";
-import LOGIN from "@/pages/auth/Login";
+import LOGIN from "@/pages/auth/LOGIN";
 
 export const authRoutes: RouteConfig[] = [
   {
