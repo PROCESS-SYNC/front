@@ -30,7 +30,10 @@ import {
   Filter,
   FilterX,
 } from "lucide-react";
+import AkGridColumnMenu from "./AkGridColumnMenu";
 import AkGridFilterInput from "./AkGridFilterInput";
+import AkGridContextMenu from "./AkGridContextMenu";
+import { exportExcel } from "./utils/exportExcel";
 
 // 셀 정렬 클래스 헬퍼 함수
 const getAlignClass = (align?: "left" | "center" | "right") => {
@@ -154,6 +157,19 @@ const AkGridInner = <T extends object>(
   // 내부 data 상태 (편집 반영용)
   const [internalData, setInternalData] = useState<T[]>(data);
   const [modifiedCells, setModifiedCells] = useState<Set<string>>(new Set());
+  // 엑셀 내보내기용 상태
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  // 컬럼(헤더) 보이기/숨기기 상태
+  const [columnVisibility, setColumnVisibility] = useState<
+    Record<string, boolean>
+  >({});
+  const [columnMenu, setColumnMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // 셀 편집 시작
   const handleStartEdit = (
@@ -232,11 +248,18 @@ const AkGridInner = <T extends object>(
   const table = useReactTable({
     data: internalData,
     columns: processedColumns,
-    state: { sorting, rowSelection, columnPinning, columnFilters },
+    state: {
+      sorting,
+      rowSelection,
+      columnPinning,
+      columnFilters,
+      columnVisibility,
+    },
     onSortingChange: setSorting,
     onRowSelectionChange: setRowSelection,
     onColumnPinningChange: setColumnPinning,
     onColumnFiltersChange: setColumnFilters,
+    onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -314,6 +337,10 @@ const AkGridInner = <T extends object>(
       <div
         className="w-full overflow-auto border border-gray-200 rounded-lg"
         style={{ height: height ?? "100%" }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({ x: e.clientX, y: e.clientY });
+        }}
       >
         <table className="w-full text-sm text-left border-collapse">
           {/* 헤더 */}
@@ -359,6 +386,11 @@ const AkGridInner = <T extends object>(
                         ? header.column.getToggleSortingHandler()
                         : undefined
                     }
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation(); // 테이블 우클릭 이벤트 차단
+                      setColumnMenu({ x: e.clientX, y: e.clientY });
+                    }}
                   >
                     <div
                       className={`flex items-center gap-1
@@ -588,6 +620,85 @@ const AkGridInner = <T extends object>(
           </tbody>
         </table>
       </div>
+
+      {/* 엑셀 내보내기 컨텍스트 메뉴 */}
+      {contextMenu && (
+        <AkGridContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          hasSelection={
+            selectable && table.getSelectedRowModel().rows.length > 0
+          }
+          // 기존 (숨김 포함)
+          onExportAll={() => {
+            exportExcel({
+              data: internalData,
+              columns,
+              fileName: "전체데이터",
+            });
+          }}
+          onExportSelected={() => {
+            const selectedRows = table
+              .getSelectedRowModel()
+              .rows.map((row) => row.original);
+            exportExcel({
+              data: selectedRows,
+              columns,
+              fileName: "선택데이터",
+            });
+          }}
+          // 숨김 제외
+          onExportAllVisible={() => {
+            const visibleColumnIds = table
+              .getVisibleLeafColumns()
+              .map((col) => col.id);
+            exportExcel({
+              data: internalData,
+              columns,
+              fileName: "전체데이터_숨김제외",
+              visibleColumnIds,
+            });
+          }}
+          onExportSelectedVisible={() => {
+            const visibleColumnIds = table
+              .getVisibleLeafColumns()
+              .map((col) => col.id);
+            const selectedRows = table
+              .getSelectedRowModel()
+              .rows.map((row) => row.original);
+            exportExcel({
+              data: selectedRows,
+              columns,
+              fileName: "선택데이터_숨김제외",
+              visibleColumnIds,
+            });
+          }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* 컬럼 보이기/숨기기 메뉴 */}
+      {columnMenu && (
+        <AkGridColumnMenu
+          x={columnMenu.x}
+          y={columnMenu.y}
+          columns={table
+            .getAllLeafColumns()
+            .filter((col) => col.id !== "__select__") // 체크박스 컬럼 제외
+            .map((col) => ({
+              id: col.id,
+              header:
+                typeof col.columnDef.header === "string"
+                  ? col.columnDef.header
+                  : col.id,
+              visible: col.getIsVisible(),
+            }))}
+          onToggle={(columnId) => {
+            table.getColumn(columnId)?.toggleVisibility();
+          }}
+          onClose={() => setColumnMenu(null)}
+        />
+      )}
 
       {/* 페이지네이션 */}
       {pagination && <AkGridPagination table={table} />}
