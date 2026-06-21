@@ -29,6 +29,7 @@ import {
   ChevronsUpDown,
   Filter,
   FilterX,
+  RotateCcw,
 } from "lucide-react";
 import AkGridColumnMenu from "./AkGridColumnMenu";
 import AkGridFilterInput from "./AkGridFilterInput";
@@ -148,6 +149,7 @@ const AkGridInner = <T extends object>(
   const [selectedCell, setSelectedCell] = useState<{
     rowId: string;
     cellId: string;
+    value: string;
   } | null>(null);
   const [filterVisible, setFilterVisible] = useState(showFilter);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -156,6 +158,7 @@ const AkGridInner = <T extends object>(
   const [editingValue, setEditingValue] = useState<string>("");
   // 내부 data 상태 (편집 반영용)
   const [internalData, setInternalData] = useState<T[]>(data);
+  const [originalData, setOriginalData] = useState<T[]>(data);
   const [modifiedCells, setModifiedCells] = useState<Set<string>>(new Set());
   // 엑셀 내보내기용 상태
   const [contextMenu, setContextMenu] = useState<{
@@ -185,19 +188,31 @@ const AkGridInner = <T extends object>(
   const handleSaveEdit = (rowIndex: number) => {
     if (!editingCell) return;
 
-    setInternalData((prev) => {
-      const updated = [...prev];
-      updated[rowIndex] = {
-        ...updated[rowIndex],
-        [editingCell.columnId]: editingValue,
-      };
-      return updated;
-    });
+    if (editingValue !== editingCell.value) {
+      setInternalData((prev) => {
+        const updated = [...prev];
+        updated[rowIndex] = {
+          ...updated[rowIndex],
+          [editingCell.columnId]: editingValue,
+        };
+        return updated;
+      });
 
-    // 행 전체 → 셀 단위로 추적
-    setModifiedCells((prev) =>
-      new Set(prev).add(`${rowIndex}-${editingCell.columnId}`),
-    );
+      // 원본 값 기준으로 수정 여부 판단 (A→AA→A 복원 시 수정 취소)
+      const originalValue = String(
+        (originalData[rowIndex] as Record<string, unknown>)[editingCell.columnId] ?? ""
+      );
+      const key = `${rowIndex}-${editingCell.columnId}`;
+      setModifiedCells((prev) => {
+        const next = new Set(prev);
+        if (editingValue !== originalValue) {
+          next.add(key);
+        } else {
+          next.delete(key);
+        }
+        return next;
+      });
+    }
 
     setEditingCell(null);
     setEditingValue("");
@@ -212,35 +227,31 @@ const AkGridInner = <T extends object>(
   // 외부 data 변경 시 내부 상태 동기화
   useEffect(() => {
     setInternalData(data);
+    setOriginalData(data);
     setModifiedCells(new Set());
   }, [data]);
 
   useEffect(() => {
-    if (!cellSelectable || !selectedCell) return;
+    if (!isCellSelectable || !selectedCell) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === "c") {
-        // 선택된 셀의 실제 텍스트 값 가져오기
-        const cellElement = document.getElementById(
-          `cell-${selectedCell.rowId}-${selectedCell.cellId}`,
-        );
-        if (!cellElement) return;
-        const text = cellElement.innerText;
-        navigator.clipboard.writeText(text);
+        navigator.clipboard.writeText(selectedCell.value);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cellSelectable, selectedCell]);
+  }, [isCellSelectable, selectedCell]);
 
   // columns 전처리 (align, readOnly 등 -> meta로 변환)
   const processedColumns = useMemo(() => {
-    return columns.map(({ align, readOnly, ...rest }) => ({
+    return columns.map(({ align, readOnly, reset, ...rest }) => ({
       ...rest,
       meta: {
         align,
         readOnly,
+        reset,
       },
     })) as ColumnDef<T>[];
   }, [columns]);
@@ -570,9 +581,17 @@ const AkGridInner = <T extends object>(
                         `}
                         style={getPinnedStyles(cell.column)}
                         onClick={(e) => {
-                          if (isCellSelectable && !isEditingCell) {
+                          if (isEditingCell) {
                             e.stopPropagation();
-                            setSelectedCell({ rowId: row.id, cellId: cell.id });
+                            return;
+                          }
+                          if (isCellSelectable) {
+                            e.stopPropagation();
+                            setSelectedCell({
+                              rowId: row.id,
+                              cellId: cell.id,
+                              value: String(cell.getValue() ?? ""),
+                            });
                           }
                         }}
                         onDoubleClick={(e) => {
@@ -588,23 +607,45 @@ const AkGridInner = <T extends object>(
                         }}
                       >
                         {isEditingCell ? (
-                          <input
-                            type="text"
-                            value={editingValue}
-                            autoFocus
-                            onChange={(e) => setEditingValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSaveEdit(rowIndex);
-                              if (e.key === "Escape") handleCancelEdit();
-                              e.stopPropagation();
-                            }}
-                            onBlur={() => handleSaveEdit(rowIndex)}
-                            className="
-                              w-full h-full px-4 py-3
-                              border-2 border-blue-400
-                              focus:outline-none text-sm text-gray-700
-                            "
-                          />
+                          <div className="relative flex items-center w-full h-full">
+                            <input
+                              type="text"
+                              value={editingValue}
+                              autoFocus
+                              onChange={(e) => setEditingValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveEdit(rowIndex);
+                                if (e.key === "Escape") handleCancelEdit();
+                                e.stopPropagation();
+                              }}
+                              onBlur={() => handleSaveEdit(rowIndex)}
+                              className={`
+                                w-full h-full px-4 py-3
+                                border-2 border-blue-400
+                                focus:outline-none text-sm text-gray-700
+                                ${cell.column.columnDef.meta?.reset !== false ? "pr-8" : ""}
+                              `}
+                            />
+                            {cell.column.columnDef.meta?.reset !== false && (
+                              <button
+                                type="button"
+                                tabIndex={-1}
+                                title="원본 값으로 복원"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();   // blur 방지
+                                  e.stopPropagation();  // td/tr onClick 버블링 차단 (체크박스 선택 방지)
+                                  const originalValue = String(
+                                    (originalData[rowIndex] as Record<string, unknown>)[cell.column.id] ?? ""
+                                  );
+                                  setEditingValue(originalValue);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-1 p-1 rounded text-gray-400 hover:text-blue-500 hover:bg-gray-100"
+                              >
+                                <RotateCcw size={12} />
+                              </button>
+                            )}
+                          </div>
                         ) : (
                           flexRender(
                             cell.column.columnDef.cell,

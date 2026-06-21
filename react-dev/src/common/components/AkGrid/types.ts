@@ -4,6 +4,7 @@ import type { ColumnDef, RowData } from "@tanstack/react-table";
 export type AkColumnDef<T> = ColumnDef<T> & {
   align?: "left" | "center" | "right";
   readOnly?: boolean;
+  reset?: boolean; // 편집 모드 시 원본 값 복원 버튼 표시
 };
 
 // TanStack Table meta 타입 확장 (내부 처리용)
@@ -11,6 +12,7 @@ declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
     align?: "left" | "center" | "right";
     readOnly?: boolean;
+    reset?: boolean;
   }
 }
 
