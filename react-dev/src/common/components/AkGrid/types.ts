@@ -5,6 +5,7 @@ export type AkColumnDef<T> = ColumnDef<T> & {
   align?: "left" | "center" | "right";
   readOnly?: boolean;
   reset?: boolean; // 편집 모드 시 원본 값 복원 버튼 표시
+  height?: number; // 컬럼 셀 높이
 };
 
 // TanStack Table meta 타입 확장 (내부 처리용)
@@ -13,6 +14,7 @@ declare module "@tanstack/react-table" {
     align?: "left" | "center" | "right";
     readOnly?: boolean;
     reset?: boolean;
+    height?: number;
   }
 }
 
@@ -45,6 +47,8 @@ export interface AkGridProps<T extends object> {
   sortable?: boolean;
   height?: string;
   className?: string;
+  virtualScroll?: boolean;
+  rowHeight?: number;
 }
 
 export interface AkGridRef {

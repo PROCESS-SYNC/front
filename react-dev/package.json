@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.14.3",
     "axios": "^1.18.0",
     "dayjs": "^1.11.21",
     "file-saver": "^2.0.5",
