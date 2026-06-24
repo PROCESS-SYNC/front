@@ -23,7 +23,7 @@ import {
   useMemo,
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { EditingCell, AkGridProps, AkGridRef } from "./types";
+import type { EditingCell, AkGridProps, AkGridRef, AkColumnDef } from "./types";
 import AkGridPagination from "./AkGridPagination";
 import {
   ChevronUp,
@@ -114,6 +114,12 @@ const AkGridInner = <T extends object>(
     };
   };
 
+  // 컬럼 헤더 높이 계산 (컬럼별 height 중 최대값, 미설정 시 rowHeight 기준)
+  const headerHeight = useMemo(() => {
+    const heights = columns.map((col) => col.height ?? rowHeight);
+    return Math.max(...heights);
+  }, [columns, rowHeight]);
+
   // 고정 컬럼 스타일 헬퍼 함수
   const getPinnedStyles = (column: Column<T>): React.CSSProperties => {
     const isPinnedLeft = column.getIsPinned() === "left";
@@ -139,21 +145,8 @@ const AkGridInner = <T extends object>(
       right: isPinnedRight ? `${column.getAfter("right")}px` : undefined,
       zIndex: isPinnedLeft || isPinnedRight ? 11 : 10,
       width: column.getSize(),
+      boxShadow: "inset 0 -1px 0 #E5E7EB",
     };
-  };
-
-  // 마지막 고정 컬럼 판별 헬퍼 함수
-  const isLastLeftPinned = (column: Column<T>): boolean => {
-    const leftCols = table.getLeftLeafColumns();
-    return (
-      column.getIsPinned() === "left" &&
-      leftCols[leftCols.length - 1]?.id === column.id
-    );
-  };
-
-  const isLastRightPinned = (column: Column<T>): boolean => {
-    const rightCols = table.getRightLeafColumns();
-    return column.getIsPinned() === "right" && rightCols[0]?.id === column.id;
   };
 
   // isReadOnly false면 cellSelectable 자동 true
@@ -318,13 +311,32 @@ const AkGridInner = <T extends object>(
     overscan: 10,
   });
 
-  // 행 선택 변경 시 콜백
+  // 마지막 고정 컬럼 판별 헬퍼 함수
+  const isLastLeftPinned = (column: Column<T>): boolean => {
+    const leftCols = table.getLeftLeafColumns();
+    return (
+      column.getIsPinned() === "left" &&
+      leftCols[leftCols.length - 1]?.id === column.id
+    );
+  };
+
+  const isLastRightPinned = (column: Column<T>): boolean => {
+    const rightCols = table.getRightLeafColumns();
+    return column.getIsPinned() === "right" && rightCols[0]?.id === column.id;
+  };
+
+  const onRowSelectRef = useRef(onRowSelect);
+  onRowSelectRef.current = onRowSelect;
+  const tableRef = useRef(table);
+  tableRef.current = table;
+
+  // rowSelection 변경 시에만 실행 — ref를 통해 최신 table/콜백 참조
   useEffect(() => {
-    if (!onRowSelect) return;
-    const selectedRows = table
+    if (!onRowSelectRef.current) return;
+    const selectedRows = tableRef.current
       .getSelectedRowModel()
       .rows.map((row) => row.original);
-    onRowSelect(selectedRows);
+    onRowSelectRef.current(selectedRows);
   }, [rowSelection]);
 
   // ref로 외부에서 제어 가능
@@ -388,11 +400,13 @@ const AkGridInner = <T extends object>(
           }}
         >
           <table
-            className="text-sm text-left border-collapse"
+            className="text-sm text-left"
             style={
               virtualScroll && !pagination
                 ? {
                     tableLayout: "fixed",
+                    borderCollapse: "separate",
+                    borderSpacing: 0,
                     width:
                       (selectable ? selectColumnWidth : 0) +
                       table
@@ -401,6 +415,8 @@ const AkGridInner = <T extends object>(
                   }
                 : {
                     width: "100%",
+                    borderCollapse: "separate",
+                    borderSpacing: 0,
                     minWidth:
                       (selectable ? selectColumnWidth : 0) +
                       table
@@ -427,6 +443,7 @@ const AkGridInner = <T extends object>(
                         position: "sticky",
                         top: 0,
                         zIndex: 10,
+                        boxShadow: "inset 0 -1px 0 #E5E7EB",
                       }}
                       className="px-3 py-3 border border-gray-200 bg-gray-100 text-center"
                     >
@@ -513,20 +530,38 @@ const AkGridInner = <T extends object>(
             <tbody>
               {/* 필터 입력 행 */}
               {columnFilter && filterVisible && (
-                <tr className="bg-white">
+                <tr>
                   {selectable && (
-                    <td className="px-3 py-2 border border-gray-200" />
+                    <td
+                      className="px-3 py-2 border border-gray-200"
+                      style={{
+                        position: "sticky",
+                        top: headerHeight,
+                        left: 0,
+                        zIndex: 9,
+                        backgroundColor: "#FFFFFF",
+                        boxShadow: "inset 0 -1px 0 #E5E7EB",
+                      }}
+                    />
                   )}
-                  {table.getAllLeafColumns().map((column) => (
+                  {table.getVisibleLeafColumns().map((column) => (
                     <td
                       key={column.id}
                       className={`
-                      px-2 py-1.5 border border-gray-200
-                      ${column.getIsPinned() ? "bg-yellow-50" : "bg-white"}
-                      ${isLastLeftPinned(column) ? "border-r-2 border-r-yellow-400" : ""}
-                      ${isLastRightPinned(column) ? "border-l-2 border-l-yellow-400" : ""}
-                    `}
-                      style={getPinnedStyles(column)}
+                        px-2 py-1.5 border border-gray-200
+                        ${isLastLeftPinned(column) ? "border-r-2 border-r-yellow-400" : ""}
+                        ${isLastRightPinned(column) ? "border-l-2 border-l-yellow-400" : ""}
+                      `}
+                      style={{
+                        ...getPinnedStyles(column),
+                        position: "sticky",
+                        top: headerHeight,
+                        zIndex: column.getIsPinned() ? 9 : 8,
+                        backgroundColor: column.getIsPinned()
+                          ? "#FEFCE8"
+                          : "#FFFFFF",
+                        boxShadow: "inset 0 -1px 0 #E5E7EB",
+                      }}
                     >
                       {column.getCanFilter() ? (
                         <AkGridFilterInput
@@ -564,8 +599,7 @@ const AkGridInner = <T extends object>(
                 </tr>
               ) : virtualScroll && !pagination ? (
                 // 가상 스크롤 모드 (padding-row 방식 - stacking context 문제 없음)
-                <>
-                  {(() => {
+                (() => {
                     const virtualItems = rowVirtualizer.getVirtualItems();
                     const paddingTop =
                       virtualItems.length > 0 ? virtualItems[0].start : 0;
@@ -777,8 +811,7 @@ const AkGridInner = <T extends object>(
                         )}
                       </>
                     );
-                  })()}
-                </>
+                  })()
               ) : (
                 // 일반 모드 - 기존 코드 유지
                 table.getRowModel().rows.map((row, rowIndex) => (
