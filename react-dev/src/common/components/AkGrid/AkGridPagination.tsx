@@ -46,7 +46,18 @@ const AkGridPagination = <T extends object>({
         {Array.from({ length: table.getPageCount() }, (_, i) => i)
           .filter((i) => {
             const current = table.getState().pagination.pageIndex;
-            return i >= current - 2 && i <= current + 2;
+            const pageCount = table.getPageCount();
+            let start = current - 2;
+            let end = current + 2;
+            if (start < 0) {
+              end = Math.min(pageCount - 1, end - start);
+              start = 0;
+            }
+            if (end >= pageCount) {
+              start = Math.max(0, start - (end - pageCount + 1));
+              end = pageCount - 1;
+            }
+            return i >= start && i <= end;
           })
           .map((i) => (
             <button
